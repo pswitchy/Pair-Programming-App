@@ -71,3 +71,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
             await manager.broadcast(room_id, data, websocket)
     except WebSocketDisconnect:
         manager.disconnect(room_id, websocket)
+
+
+@app.get("/")
+def health_check():
+    return {"status": "ok", "message": "Pair Programming Backend is Running"}
