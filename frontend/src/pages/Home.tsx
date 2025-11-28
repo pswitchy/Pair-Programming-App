@@ -1,11 +1,12 @@
 import React from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { REST_ENDPOINT } from '../config';
 
 const Home: React.FC = () => {
   const navigate = useNavigate();
   const createRoom = async () => {
-    const res = await axios.post('http://localhost:8000/rooms');
+    const res = await axios.post(`${REST_ENDPOINT}/rooms`);
     navigate(`/room/${res.data.room_id}`);
   };
   return (
