@@ -16,7 +16,9 @@ interface UserAwareness {
 const CodeEditor: React.FC = () => {
   const { roomId } = useParams();
   const editorRef = useRef<any>(null);
+  
   const [users, setUsers] = useState<UserAwareness[]>([]);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
 
   const providerRef = useRef<WebsocketProvider | null>(null);
   const docRef = useRef<Y.Doc | null>(null);
@@ -26,6 +28,7 @@ const CodeEditor: React.FC = () => {
   const myName = useRef(`User ${Math.floor(Math.random() * 1000)}`);
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const aiTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -89,6 +92,31 @@ const CodeEditor: React.FC = () => {
             axios.put(`${REST_ENDPOINT}/rooms/${roomId}/save`, { code: currentCode });
         }, 2000); 
     });
+
+    editor.onDidChangeModelContent(() => {
+      setSuggestion(null);
+
+      if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
+      
+      aiTimeoutRef.current = setTimeout(async () => {
+        const code = editor.getValue();
+        if (!code.trim()) return;
+
+        try {
+           const res = await axios.post(`${REST_ENDPOINT}/autocomplete`, {
+             code: code,
+             cursorPosition: code.length, // Simplified
+             language: "python"
+           });
+           
+           if (res.data.suggestion) {
+             setSuggestion(res.data.suggestion);
+           }
+        } catch (error) {
+           console.error("AI Fetch error:", error);
+        }
+      }, 800); 
+    });
   };
 
   useEffect(() => {
@@ -96,6 +124,8 @@ const CodeEditor: React.FC = () => {
       providerRef.current?.destroy();
       docRef.current?.destroy();
       bindingRef.current?.destroy();
+      if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, []);
 
@@ -113,6 +143,18 @@ const CodeEditor: React.FC = () => {
       }}>
         <div>
            Room: <strong>{roomId}</strong>
+           {suggestion && (
+             <span style={{ 
+               marginLeft: '20px', 
+               color: '#4ade80', 
+               fontSize: '0.9em', 
+               background: 'rgba(74, 222, 128, 0.1)',
+               padding: '2px 8px',
+               borderRadius: '4px'
+             }}>
+               ✨ AI: {suggestion.replace(/\n/g, "\\n")}
+             </span>
+           )}
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           {users.map((u, i) => (
