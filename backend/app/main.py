@@ -77,7 +77,7 @@ def autocomplete(payload: dict):
     elif last_line.strip().endswith(":"):
         suggestion = "\n    pass"
     else:
-        suggestion = " # AI Suggestion"
+        suggestion = ""
 
     return {"suggestion": suggestion}
 
