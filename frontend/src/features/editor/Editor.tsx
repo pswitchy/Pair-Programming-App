@@ -6,7 +6,6 @@ import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import randomColor from 'randomcolor';
 import axios from 'axios';
-// Import the configuration to handle Localhost vs Production URLs automatically
 import { REST_ENDPOINT, WS_ENDPOINT } from '../../config';
 
 interface UserAwareness {
@@ -33,12 +32,9 @@ const CodeEditor: React.FC = () => {
     
     if (!roomId) return;
 
-    // 1. Initialize Yjs Document
     const doc = new Y.Doc();
     docRef.current = doc;
 
-    // 2. Connect to WebSocket
-    // Uses the Dynamic WS_ENDPOINT from config.ts
     const wsProvider = new WebsocketProvider(
       `${WS_ENDPOINT}/ws`, 
       roomId,                   
@@ -47,7 +43,6 @@ const CodeEditor: React.FC = () => {
     );
     providerRef.current = wsProvider;
 
-    // 3. Bind Yjs Text to Monaco Editor
     const type = doc.getText('monaco'); 
     const binding = new MonacoBinding(
       type,
@@ -57,7 +52,6 @@ const CodeEditor: React.FC = () => {
     );
     bindingRef.current = binding;
 
-    // 4. Set User Presence
     wsProvider.awareness.setLocalStateField('user', {
       name: myName.current,
       color: myColor.current,
@@ -73,20 +67,25 @@ const CodeEditor: React.FC = () => {
       setUsers(activeUsers);
     });
 
-    // 5. Initial Fetch (REST)
-    // Uses the Dynamic REST_ENDPOINT from config.ts
-    axios.get(`${REST_ENDPOINT}/rooms/${roomId}`).then((res) => {
+    const dbContentPromise = axios.get(`${REST_ENDPOINT}/rooms/${roomId}`)
+      .then(res => res.data.code || "")
+      .catch(err => "");
+
+    wsProvider.on('sync', async (isSynced: boolean) => {
+      if (isSynced) {
         if (type.toString().length === 0) {
-            type.insert(0, res.data.code || "");
+          const content = await dbContentPromise;
+          if (type.toString().length === 0) {
+            type.insert(0, content);
+          }
         }
+      }
     });
 
-    // 6. Save Snapshot (Debounced)
     doc.on('update', () => {
         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = setTimeout(() => {
             const currentCode = type.toString();
-            // Uses the Dynamic REST_ENDPOINT from config.ts
             axios.put(`${REST_ENDPOINT}/rooms/${roomId}/save`, { code: currentCode });
         }, 2000); 
     });
