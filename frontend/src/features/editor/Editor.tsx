@@ -16,19 +16,16 @@ interface UserAwareness {
 const CodeEditor: React.FC = () => {
   const { roomId } = useParams();
   const editorRef = useRef<any>(null);
-  
   const [users, setUsers] = useState<UserAwareness[]>([]);
-  const [suggestion, setSuggestion] = useState<string | null>(null);
-
   const providerRef = useRef<WebsocketProvider | null>(null);
   const docRef = useRef<Y.Doc | null>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
+  
+  const completionProviderRef = useRef<any>(null);
 
   const myColor = useRef(randomColor());
   const myName = useRef(`User ${Math.floor(Math.random() * 1000)}`);
-
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const aiTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -72,16 +69,12 @@ const CodeEditor: React.FC = () => {
 
     const dbContentPromise = axios.get(`${REST_ENDPOINT}/rooms/${roomId}`)
       .then(res => res.data.code || "")
-      .catch(err => "");
+      .catch(() => "");
 
     wsProvider.on('sync', async (isSynced: boolean) => {
-      if (isSynced) {
-        if (type.toString().length === 0) {
+      if (isSynced && type.toString().length === 0) {
           const content = await dbContentPromise;
-          if (type.toString().length === 0) {
-            type.insert(0, content);
-          }
-        }
+          if (type.toString().length === 0) type.insert(0, content);
       }
     });
 
@@ -93,30 +86,49 @@ const CodeEditor: React.FC = () => {
         }, 2000); 
     });
 
-    editor.onDidChangeModelContent(() => {
-      setSuggestion(null);
+    const provider = monaco.languages.registerInlineCompletionsProvider('python', {
+      provideInlineCompletions: async (model, position) => {
+        const textUntilPosition = model.getValueInRange({
+          startLineNumber: 1,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+        });
 
-      if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
-      
-      aiTimeoutRef.current = setTimeout(async () => {
-        const code = editor.getValue();
-        if (!code.trim()) return;
+        const word = model.getWordUntilPosition(position);
+        
+        if (word.word.length < 2 && textUntilPosition.trim().length === 0) {
+            return { items: [] };
+        }
 
         try {
-           const res = await axios.post(`${REST_ENDPOINT}/autocomplete`, {
-             code: code,
-             cursorPosition: code.length, // Simplified
-             language: "python"
-           });
-           
-           if (res.data.suggestion) {
-             setSuggestion(res.data.suggestion);
-           }
+          const res = await axios.post(`${REST_ENDPOINT}/autocomplete`, {
+            code: textUntilPosition,
+            cursorPosition: textUntilPosition.length,
+            language: "python"
+          });
+
+          if (!res.data.suggestion) return { items: [] };
+
+          return {
+            items: [{
+              insertText: res.data.suggestion,
+              range: {
+                startLineNumber: position.lineNumber,
+                startColumn: position.column,
+                endLineNumber: position.lineNumber,
+                endColumn: position.column,
+              }
+            }]
+          };
         } catch (error) {
-           console.error("AI Fetch error:", error);
+          return { items: [] };
         }
-      }, 800); 
+      },
+      disposeInlineCompletions: () => {}
     });
+
+    completionProviderRef.current = provider;
   };
 
   useEffect(() => {
@@ -124,14 +136,13 @@ const CodeEditor: React.FC = () => {
       providerRef.current?.destroy();
       docRef.current?.destroy();
       bindingRef.current?.destroy();
-      if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      completionProviderRef.current?.dispose();
     };
   }, []);
 
   return (
     <div style={{ display: 'flex', height: '100vh', flexDirection: 'column' }}>
-      {/* Header / Toolbar */}
+      {/* Header */}
       <div style={{ 
         padding: '10px 20px', 
         background: '#1e1e1e', 
@@ -141,28 +152,11 @@ const CodeEditor: React.FC = () => {
         justifyContent: 'space-between',
         alignItems: 'center'
       }}>
-        <div>
-           Room: <strong>{roomId}</strong>
-           {suggestion && (
-             <span style={{ 
-               marginLeft: '20px', 
-               color: '#4ade80', 
-               fontSize: '0.9em', 
-               background: 'rgba(74, 222, 128, 0.1)',
-               padding: '2px 8px',
-               borderRadius: '4px'
-             }}>
-               ✨ AI: {suggestion.replace(/\n/g, "\\n")}
-             </span>
-           )}
-        </div>
+        <div>Room: <strong>{roomId}</strong></div>
         <div style={{ display: 'flex', gap: '10px' }}>
           {users.map((u, i) => (
              <div key={i} style={{ 
-                 display: 'flex', 
-                 alignItems: 'center', 
-                 gap: '5px',
-                 fontSize: '0.8rem' 
+                 display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem' 
              }}>
                 <div style={{ width: 10, height: 10, borderRadius: '50%', background: u.color }}></div>
                 {u.name} {u.name === myName.current && '(You)'}
@@ -171,7 +165,7 @@ const CodeEditor: React.FC = () => {
         </div>
       </div>
 
-      {/* Editor Area */}
+      {/* Editor */}
       <div style={{ flexGrow: 1 }}>
         <Editor
           height="100%"
@@ -179,7 +173,8 @@ const CodeEditor: React.FC = () => {
           theme="vs-dark"
           onMount={handleEditorDidMount}
           options={{
-             minimap: { enabled: false }
+             minimap: { enabled: false },
+             inlineSuggest: { enabled: true } 
           }}
         />
       </div>
