@@ -60,7 +60,26 @@ def save_room_snapshot(room_id: str, payload: SaveRequest, db: Session = Depends
 
 @app.post("/autocomplete")
 def autocomplete(payload: dict):
-    return {"suggestion": "\n    print('AI Autocomplete Result')"}
+    code = payload.get("code", "")
+    lines = code.split('\n')
+    last_line = lines[-1]
+    
+    suggestion = ""
+    if last_line.strip() == "def":
+        suggestion = " my_function():"
+    elif last_line.strip() == "import":
+        suggestion = " math"
+    elif last_line.strip().startswith("print"):
+        if "(" not in last_line:
+            suggestion = "('Hello World')"
+        elif last_line.endswith("("):
+            suggestion = "'Hello World')"
+    elif last_line.strip().endswith(":"):
+        suggestion = "\n    pass"
+    else:
+        suggestion = " # AI Suggestion"
+
+    return {"suggestion": suggestion}
 
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str):
